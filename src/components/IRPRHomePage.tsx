@@ -981,7 +981,7 @@ export default function IRPRHomePage() {
             </section>
           )}
           <div className="col-span-12 lg:col-span-4 min-w-0 space-y-4 sm:space-y-5">
-            {tab === 'filings' && (
+            {tab === 'filings' ? (
               <SECFilingListPanel
                 filteredFilings={filteredFilings}
                 selectedFiling={selectedFiling}
@@ -992,20 +992,23 @@ export default function IRPRHomePage() {
                 onChangeSummaryExpanded={setFilingSummaryExpanded}
                 isIRPRAdmin={isIRPRAdmin}
               />
+            ) : (
+              <>
+                <IRPRCalendarCard
+                  events={calendarEvents}
+                  tags={calendarTags}
+                  isIRPRAdmin={isIRPRAdmin}
+                  onAdd={handleAddCalendarEvent}
+                  onUpdate={handleUpdateCalendarEvent}
+                  onDelete={handleDeleteCalendarEvent}
+                  onToggleImportant={handleToggleCalendarEventImportant}
+                  onAddTag={handleAddCalendarTag}
+                  onUpdateTag={handleUpdateCalendarTag}
+                  onDeleteTag={handleDeleteCalendarTag}
+                />
+                <OfficialMatrix isIRPRAdmin={isIRPRAdmin} />
+              </>
             )}
-            <IRPRCalendarCard
-              events={calendarEvents}
-              tags={calendarTags}
-              isIRPRAdmin={isIRPRAdmin}
-              onAdd={handleAddCalendarEvent}
-              onUpdate={handleUpdateCalendarEvent}
-              onDelete={handleDeleteCalendarEvent}
-              onToggleImportant={handleToggleCalendarEventImportant}
-              onAddTag={handleAddCalendarTag}
-              onUpdateTag={handleUpdateCalendarTag}
-              onDeleteTag={handleDeleteCalendarTag}
-            />
-            <OfficialMatrix isIRPRAdmin={isIRPRAdmin} />
           </div>
         </div>
       </main>
