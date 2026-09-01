@@ -49,8 +49,8 @@ interface Props {
   };
   selectedFiling: SECFilingSummary | null;
   onSelectFiling: (nextId: string) => void;
-  summaryExpanded: boolean;
-  onChangeSummaryExpanded: (next: boolean) => void;
+  expandedSummaryIds: Set<string>;
+  onToggleSummaryExpanded: (id: string) => void;
   formFilter: FilingFilterFormType;
   onFormFilterChange: (next: FilingFilterFormType) => void;
   statusFilter: FilingFilterStatus;
@@ -130,8 +130,8 @@ export default function SECFilingTimeline({
   filingStats,
   selectedFiling,
   onSelectFiling,
-  summaryExpanded,
-  onChangeSummaryExpanded,
+  expandedSummaryIds,
+  onToggleSummaryExpanded,
   formFilter,
   onFormFilterChange,
   statusFilter,
@@ -149,9 +149,6 @@ export default function SECFilingTimeline({
   const selected = selectedFiling;
   const filtered = filteredFilings;
   const stats = filingStats;
-  const selTone = selected ? toneFor(selected.formType) : null;
-  const selStatus = selected ? STATUS_META[selected.status] : null;
-  const SelStatusIcon = selStatus?.icon ?? Loader2;
 
   return (
     <section className={["flex flex-col gap-4 sm:gap-5 w-full", className ?? ''].filter(Boolean).join(' ')}>
@@ -169,7 +166,7 @@ export default function SECFilingTimeline({
                 </span>
               </h2>
               <p className="text-[12px] sm:text-[12.5px] text-slate-500 mt-0.5 leading-relaxed">
-                自动抓取 SEC 8-K / 10-Q / 424B5 / 13G 等公告，AI 自动抽取要点与关键数字。点击右侧任意公告即可切换左侧详情。
+                自动抓取 SEC 8-K / 10-Q / 424B5 / 13G 等公告，AI 自动抽取要点与关键数字。左栏按时间线纵向浏览，右栏点击快速跳转。
               </p>
             </div>
           </div>
@@ -322,278 +319,284 @@ export default function SECFilingTimeline({
         ) : (
           <div className="px-4 sm:px-6 py-4 sm:py-5 flex-1 min-h-0 items-start">
             <div className="w-full min-w-0 space-y-4 sm:space-y-5">
-              {!selected ? (
-                <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/80 px-4 sm:px-6 py-10 sm:py-12 text-center">
-                  <div className="mx-auto w-11 h-11 rounded-2xl bg-white text-slate-400 flex items-center justify-center border border-slate-200 mb-3 shadow-sm">
-                    <FileText size={18} />
-                  </div>
-                  <div className="text-[13.5px] sm:text-[14px] font-semibold text-slate-700 mb-1">
-                    从右侧选择一条公告查看详情
-                  </div>
-                </div>
-              ) : (
-                <article
-                  id={`sec-filing-${selected.id}`}
-                  className={`rounded-3xl border ${selTone ? `ring-1 ${selTone.ring} border-slate-200/80` : 'border-slate-200/80'} bg-white shadow-[0_2px_0_rgba(15,23,42,0.03),0_22px_60px_-30px_rgba(15,23,42,0.2)] overflow-hidden`}
-                >
-                  <div
-                    className={`h-1.5 sm:h-2 w-full bg-gradient-to-r ${selTone?.iconBg ?? 'from-slate-400 to-slate-500'}`}
-                  />
-                  <div className="px-4 sm:px-6 py-4 sm:py-5 flex flex-col lg:flex-row lg:items-start gap-4 sm:gap-5 border-b border-slate-100/80">
-                    <div className="flex lg:flex-col items-start lg:items-center gap-3 lg:gap-2 w-full lg:w-[96px] shrink-0">
-                      <div
-                        className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br ${selTone?.iconBg ?? 'from-slate-500 to-slate-600'} text-white shadow-[0_10px_26px_-10px_rgba(15,23,42,0.4)] flex items-center justify-center font-black tracking-tight text-[13px] sm:text-[15px]`}
-                      >
-                        {selTone?.iconText ?? 'OT'}
+              {filtered.map((f) => {
+                const tone = toneFor(f.formType);
+                const statusMeta = STATUS_META[f.status];
+                const StatusIcon = statusMeta?.icon ?? Loader2;
+                const isSelected = selected?.id === f.id;
+                const expanded = expandedSummaryIds.has(f.id);
+                const longSummary = f.summary.split('\n').length > 3 || f.summary.length > 260;
+                return (
+                  <article
+                    key={f.id}
+                    id={`sec-filing-${f.id}`}
+                    className={`relative rounded-3xl border ${isSelected ? 'ring-2 ring-indigo-400/70 border-indigo-200 bg-gradient-to-br from-indigo-50/30 via-white to-white shadow-[0_8px_30px_-18px_rgba(79,70,229,0.45)]' : `ring-1 ${tone.ring} border-slate-200/80 bg-white shadow-[0_2px_0_rgba(15,23,42,0.03),0_22px_60px_-30px_rgba(15,23,42,0.2)]`} overflow-hidden scroll-mt-4`}
+                  >
+                    {isSelected && (
+                      <div className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 text-[10.5px] sm:text-[11px] font-bold text-white bg-gradient-to-br from-indigo-500 to-violet-600 px-2 py-0.5 rounded-full shadow-[0_6px_14px_-6px_rgba(99,102,241,0.7)]">
+                        <Circle size={7} strokeWidth={0} className="fill-current" />
+                        {tone.label} · {formatFiledAt(f.filedAt)}
                       </div>
-                      <div className="lg:mt-1 flex lg:flex-col gap-1.5 items-start lg:items-center">
+                    )}
+                    <div
+                      className={`h-1.5 sm:h-2 w-full bg-gradient-to-r ${tone.iconBg}`}
+                    />
+                    <div className="px-4 sm:px-6 py-4 sm:py-5 flex flex-col lg:flex-row lg:items-start gap-4 sm:gap-5 border-b border-slate-100/80">
+                      <div className="flex lg:flex-col items-start lg:items-center gap-3 lg:gap-2 w-full lg:w-[96px] shrink-0">
                         <div
-                          className={`inline-flex items-center px-2 py-0.5 rounded-xl text-[11px] sm:text-[11.5px] font-bold ${selTone?.badge ?? 'bg-slate-50 text-slate-700 border border-slate-200'}`}
+                          className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br ${tone.iconBg} text-white shadow-[0_10px_26px_-10px_rgba(15,23,42,0.4)] flex items-center justify-center font-black tracking-tight text-[13px] sm:text-[15px]`}
                         >
-                          <FileText size={10.5} className="mr-1" />
-                          {selTone?.label ?? '其他'}
+                          {tone.iconText}
                         </div>
-                        <div className="inline-flex items-center gap-1 text-[11.5px] text-slate-500 tabular-nums">
-                          <CalendarDays size={11} />
-                          {formatFiledAt(selected.filedAt)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-2">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] sm:text-[11.5px] font-semibold ${selStatus?.className ?? 'text-slate-700 bg-slate-50 border border-slate-200'}`}>
-                          <SelStatusIcon
-                            size={11}
-                            className={selected.status === 'summarizing' ? 'animate-spin' : ''}
-                          />
-                          {selStatus?.label ?? '未知状态'}
-                        </span>
-                        {selected.aiRisk === 'high' ? (
-                          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-100">
-                            <ShieldAlert size={10.5} /> 高风险提示
-                          </span>
-                        ) : selected.aiRisk === 'medium' ? (
-                          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-100">
-                            <AlertTriangle size={10.5} /> 中风险复核
-                          </span>
-                        ) : null}
-                        {selected.tags.slice(0, 5).map((t) => (
-                          <span
-                            key={t}
-                            className="inline-flex items-center gap-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200/80 px-2 py-0.5 text-[11px] font-medium"
+                        <div className="lg:mt-1 flex lg:flex-col gap-1.5 items-start lg:items-center">
+                          <div
+                            className={`inline-flex items-center px-2 py-0.5 rounded-xl text-[11px] sm:text-[11.5px] font-bold ${tone.badge}`}
                           >
-                            <Tag size={9.5} /> {t}
-                          </span>
-                        ))}
-                        {selected.tags.length > 5 && (
-                          <span className="inline-flex items-center rounded-full text-[11px] text-slate-400 font-medium">
-                            +{selected.tags.length - 5}
-                          </span>
-                        )}
-                      </div>
-                      <h3 className="text-[16px] sm:text-[17.5px] font-black tracking-tight text-slate-900 leading-tight">
-                        {selected.subject}
-                      </h3>
-                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5 text-[11.5px] sm:text-[12px]">
-                        <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5">
-                          <Building2 size={11} />
-                          <span className="text-slate-500 mr-0.5">发行人</span>
-                          <span className="font-semibold text-slate-800 truncate">{selected.issuer}</span>
-                        </div>
-                        {selected.counterparty ? (
-                          <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5">
-                            <Users size={11} />
-                            <span className="text-slate-500 mr-0.5">对方</span>
-                            <span className="font-semibold text-slate-800 truncate">{selected.counterparty}</span>
+                            <FileText size={10.5} className="mr-1" />
+                            {tone.label}
                           </div>
-                        ) : null}
-                        <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5 tabular-nums">
-                          <ScanLine size={11} />
-                          <span className="text-slate-500 mr-0.5">原文</span>
-                          <span className="font-semibold text-slate-800 truncate">
-                            {selected.rawFile.name || '—'}
-                            {selected.rawFile.size ? ` · ${selected.rawFile.size}` : ''}
-                          </span>
+                          <div className="inline-flex items-center gap-1 text-[11.5px] text-slate-500 tabular-nums">
+                            <CalendarDays size={11} />
+                            {formatFiledAt(f.filedAt)}
+                          </div>
                         </div>
-                        <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5 sm:col-span-2 lg:col-span-1 tabular-nums">
-                          <Circle
-                            size={8}
-                            className={`${selTone?.dot ?? 'bg-slate-400'} fill-current`}
-                            strokeWidth={0}
-                          />
-                          <span className="text-slate-500 mr-0.5">接入号</span>
-                          <span className="font-mono font-semibold text-slate-800 truncate">{selected.id}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-2">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] sm:text-[11.5px] font-semibold ${statusMeta?.className ?? 'text-slate-700 bg-slate-50 border border-slate-200'}`}>
+                            <StatusIcon
+                              size={11}
+                              className={f.status === 'summarizing' ? 'animate-spin' : ''}
+                            />
+                            {statusMeta?.label ?? '未知状态'}
+                          </span>
+                          {f.aiRisk === 'high' ? (
+                            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-100">
+                              <ShieldAlert size={10.5} /> 高风险提示
+                            </span>
+                          ) : f.aiRisk === 'medium' ? (
+                            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-100">
+                              <AlertTriangle size={10.5} /> 中风险复核
+                            </span>
+                          ) : null}
+                          {f.tags.slice(0, 5).map((t) => (
+                            <span
+                              key={t}
+                              className="inline-flex items-center gap-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200/80 px-2 py-0.5 text-[11px] font-medium"
+                            >
+                              <Tag size={9.5} /> {t}
+                            </span>
+                          ))}
+                          {f.tags.length > 5 && (
+                            <span className="inline-flex items-center rounded-full text-[11px] text-slate-400 font-medium">
+                              +{f.tags.length - 5}
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-[16px] sm:text-[17.5px] font-black tracking-tight text-slate-900 leading-tight">
+                          {f.subject}
+                        </h3>
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5 text-[11.5px] sm:text-[12px]">
+                          <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5">
+                            <Building2 size={11} />
+                            <span className="text-slate-500 mr-0.5">发行人</span>
+                            <span className="font-semibold text-slate-800 truncate">{f.issuer}</span>
+                          </div>
+                          {f.counterparty ? (
+                            <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5">
+                              <Users size={11} />
+                              <span className="text-slate-500 mr-0.5">对方</span>
+                              <span className="font-semibold text-slate-800 truncate">{f.counterparty}</span>
+                            </div>
+                          ) : null}
+                          <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5 tabular-nums">
+                            <ScanLine size={11} />
+                            <span className="text-slate-500 mr-0.5">原文</span>
+                            <span className="font-semibold text-slate-800 truncate">
+                              {f.rawFile.name || '—'}
+                              {f.rawFile.size ? ` · ${f.rawFile.size}` : ''}
+                            </span>
+                          </div>
+                          <div className="inline-flex items-center gap-1.5 text-slate-600 bg-slate-50/70 border border-slate-200/80 rounded-xl px-2.5 py-1.5 sm:col-span-2 lg:col-span-1 tabular-nums">
+                            <Circle
+                              size={8}
+                              className={`${tone.dot} fill-current`}
+                              strokeWidth={0}
+                            />
+                            <span className="text-slate-500 mr-0.5">接入号</span>
+                            <span className="font-mono font-semibold text-slate-800 truncate">{f.id}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {selected.keyPoints?.length > 0 && (
-                    <div className="px-4 sm:px-6 py-4 sm:py-4.5 border-b border-slate-100/80 bg-gradient-to-b from-slate-50/40 via-white to-white">
-                      <div className="flex items-center gap-2 mb-2.5">
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-xl bg-emerald-500/90 text-white shadow">
-                          <TrendingUp size={12} />
-                        </span>
-                        <div className="text-[12px] sm:text-[12.5px] font-semibold text-emerald-800 tracking-tight">
-                          一句话简介 · 明确这份公告是什么
+                    {f.keyPoints?.length > 0 && (
+                      <div className="px-4 sm:px-6 py-4 sm:py-4.5 border-b border-slate-100/80 bg-gradient-to-b from-slate-50/40 via-white to-white">
+                        <div className="flex items-center gap-2 mb-2.5">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-xl bg-emerald-500/90 text-white shadow">
+                            <TrendingUp size={12} />
+                          </span>
+                          <div className="text-[12px] sm:text-[12.5px] font-semibold text-emerald-800 tracking-tight">
+                            一句话简介 · 明确这份公告是什么
+                          </div>
+                        </div>
+                        <ul className="space-y-1.5">
+                          {f.keyPoints.slice(0, 5).map((kp, i) => (
+                            <li
+                              key={i}
+                              className="text-[12.5px] sm:text-[13px] leading-relaxed text-slate-700 pl-4 relative before:content-[''] before:absolute before:left-[6px] before:top-[0.6em] before:w-1.5 before:h-1.5 before:rounded-full before:bg-emerald-400"
+                            >
+                              {kp}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="px-4 sm:px-6 py-4 sm:py-4.5 border-b border-slate-100/80">
+                      <div className="rounded-2xl bg-gradient-to-br from-indigo-50/60 via-white to-white border border-indigo-100/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] px-3.5 sm:px-4 py-3 sm:py-3.5 overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-xl bg-indigo-500/90 text-white shadow">
+                              <Sparkles size={12.5} />
+                            </span>
+                            <span className="text-[12px] sm:text-[12.5px] font-semibold text-indigo-800 tracking-tight">
+                              {f.status === 'summarizing' ? 'AI 正在解析 PDF 生成结构化摘要' : 'AI 结构化摘要（占位 · 待接入 LLM 自动抽取 PDF 正文）'}
+                            </span>
+                          </div>
+                          {longSummary && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleSummaryExpanded(f.id)}
+                              className="shrink-0 inline-flex items-center gap-1 text-[11px] sm:text-[11.5px] text-indigo-600 hover:text-indigo-700 font-semibold px-2 py-1 rounded-xl hover:bg-indigo-50 transition"
+                            >
+                              {expanded ? '收起' : '展开全文'}
+                            </button>
+                          )}
+                        </div>
+                        <div className={`text-[12.5px] sm:text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap ${expanded ? '' : 'line-clamp-4'}`}>
+                          {f.summary}
                         </div>
                       </div>
-                      <ul className="space-y-1.5">
-                        {selected.keyPoints.slice(0, 5).map((kp, i) => (
-                          <li
-                            key={i}
-                            className="text-[12.5px] sm:text-[13px] leading-relaxed text-slate-700 pl-4 relative before:content-[''] before:absolute before:left-[6px] before:top-[0.6em] before:w-1.5 before:h-1.5 before:rounded-full before:bg-emerald-400"
-                          >
-                            {kp}
-                          </li>
-                        ))}
-                      </ul>
                     </div>
-                  )}
 
-                  <div className="px-4 sm:px-6 py-4 sm:py-4.5 border-b border-slate-100/80">
-                    <div className="rounded-2xl bg-gradient-to-br from-indigo-50/60 via-white to-white border border-indigo-100/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] px-3.5 sm:px-4 py-3 sm:py-3.5 overflow-hidden">
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-xl bg-indigo-500/90 text-white shadow">
-                            <Sparkles size={12.5} />
-                          </span>
-                          <span className="text-[12px] sm:text-[12.5px] font-semibold text-indigo-800 tracking-tight">
-                            {selected.status === 'summarizing' ? 'AI 正在解析 PDF 生成结构化摘要' : 'AI 结构化摘要（占位 · 待接入 LLM 自动抽取 PDF 正文）'}
-                          </span>
+                    {f.keyFigures?.length > 0 && (
+                      <div className="px-4 sm:px-6 py-4 sm:py-4.5 border-b border-slate-100/80">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+                          {f.keyFigures.slice(0, 4).map((kf, i) => {
+                            const toneClass =
+                              kf.tone === 'positive'
+                                ? 'bg-emerald-50 border-emerald-100 text-emerald-700 ring-emerald-50'
+                                : kf.tone === 'negative'
+                                  ? 'bg-rose-50 border-rose-100 text-rose-700 ring-rose-50'
+                                  : 'bg-slate-50 border-slate-200 text-slate-700 ring-slate-100';
+                            const valTone =
+                              kf.tone === 'positive'
+                                ? 'text-emerald-700'
+                                : kf.tone === 'negative'
+                                  ? 'text-rose-700'
+                                  : 'text-slate-900';
+                            return (
+                              <div
+                                key={i}
+                                className={`rounded-2xl border ${toneClass} px-2.5 sm:px-3 py-2 sm:py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]`}
+                              >
+                                <div className="text-[10.5px] sm:text-[11px] font-medium opacity-80 leading-none mb-1.5 sm:mb-2 line-clamp-1">
+                                  {kf.label}
+                                </div>
+                                <div className={`text-[13px] sm:text-[14px] font-bold leading-none ${valTone} break-all tabular-nums line-clamp-2`}>
+                                  {kf.value}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                        {(selected.summary.split('\n').length > 3 || selected.summary.length > 260) && (
+                      </div>
+                    )}
+
+                    <div className="px-4 sm:px-6 py-4 sm:py-4.5 flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-2 min-h-[40px] sm:min-h-[44px]">
+                        {f.status === 'ready' && onPublishAsPost && isIRPRAdmin && (
                           <button
                             type="button"
-                            onClick={() => onChangeSummaryExpanded(!summaryExpanded)}
-                            className="shrink-0 inline-flex items-center gap-1 text-[11px] sm:text-[11.5px] text-indigo-600 hover:text-indigo-700 font-semibold px-2 py-1 rounded-xl hover:bg-indigo-50 transition"
+                            onClick={() => onPublishAsPost(f)}
+                            className="inline-flex items-center justify-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-[0_10px_24px_-10px_rgba(99,102,241,0.65)] hover:shadow-[0_10px_28px_-8px_rgba(99,102,241,0.8)] hover:brightness-[1.03] active:brightness-[0.98] transition-all duration-150"
                           >
-                            {summaryExpanded ? '收起' : '展开全文'}
+                            <Megaphone size={14} />
+                            一键发布为投资者关系动态
                           </button>
                         )}
-                      </div>
-                      <div className={`text-[12.5px] sm:text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap ${summaryExpanded ? '' : 'line-clamp-4'}`}>
-                        {selected.summary}
-                      </div>
-                    </div>
-                  </div>
-
-                  {selected.keyFigures?.length > 0 && (
-                    <div className="px-4 sm:px-6 py-4 sm:py-4.5 border-b border-slate-100/80">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
-                        {selected.keyFigures.slice(0, 4).map((kf, i) => {
-                          const toneClass =
-                            kf.tone === 'positive'
-                              ? 'bg-emerald-50 border-emerald-100 text-emerald-700 ring-emerald-50'
-                              : kf.tone === 'negative'
-                                ? 'bg-rose-50 border-rose-100 text-rose-700 ring-rose-50'
-                                : 'bg-slate-50 border-slate-200 text-slate-700 ring-slate-100';
-                          const valTone =
-                            kf.tone === 'positive'
-                              ? 'text-emerald-700'
-                              : kf.tone === 'negative'
-                                ? 'text-rose-700'
-                                : 'text-slate-900';
-                          return (
-                            <div
-                              key={i}
-                              className={`rounded-2xl border ${toneClass} px-2.5 sm:px-3 py-2 sm:py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]`}
-                            >
-                              <div className="text-[10.5px] sm:text-[11px] font-medium opacity-80 leading-none mb-1.5 sm:mb-2 line-clamp-1">
-                                {kf.label}
-                              </div>
-                              <div className={`text-[13px] sm:text-[14px] font-bold leading-none ${valTone} break-all tabular-nums line-clamp-2`}>
-                                {kf.value}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="px-4 sm:px-6 py-4 sm:py-4.5 flex flex-col sm:flex-row sm:items-center gap-3">
-                    <div className="flex flex-wrap items-center gap-2 min-h-[40px] sm:min-h-[44px]">
-                      {selected.status === 'ready' && onPublishAsPost && isIRPRAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => onPublishAsPost(selected)}
-                          className="inline-flex items-center justify-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-[0_10px_24px_-10px_rgba(99,102,241,0.65)] hover:shadow-[0_10px_28px_-8px_rgba(99,102,241,0.8)] hover:brightness-[1.03] active:brightness-[0.98] transition-all duration-150"
-                        >
-                          <Megaphone size={14} />
-                          一键发布为投资者关系动态
-                        </button>
-                      )}
-                      {selected.status === 'published' && selected.publishedPostId && onViewPublishedPost && (
-                        <button
-                          type="button"
-                          onClick={() => onViewPublishedPost(selected.publishedPostId!)}
-                          className="inline-flex items-center justify-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold text-sky-700 bg-sky-50 border border-sky-100 hover:bg-sky-100 hover:border-sky-200 transition"
-                        >
-                          <Megaphone size={14} />
-                          查看已发布动态
-                        </button>
-                      )}
-                      {selected.status === 'need_review' && isIRPRAdmin && (
-                        <div className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold text-amber-700 bg-amber-50 border border-amber-100">
-                          <AlertCircle size={14} />
-                          需后端 LLM 解析 PDF 后生成结构化内容
-                        </div>
-                      )}
-                      {selected.status === 'summarizing' && (
-                        <div className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100">
-                          <Loader2 size={14} className="animate-spin" />
-                          AI 正在解析 PDF 原文…预计 30–120 秒
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto sm:justify-end">
-                      {selected.secLink && (
-                        <a
-                          href={selected.secLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center gap-1 min-h-[38px] sm:min-h-[40px] px-2.5 sm:px-3 rounded-xl text-[12px] sm:text-[12.5px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition shadow-sm"
-                          title={`在 SEC EDGAR 查看：${selected.id}`}
-                        >
-                          <ExternalLink size={13} />
-                          <span className="hidden sm:inline">查看 SEC 原文页</span>
-                          <span className="sm:hidden">SEC 原文</span>
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onCopyText?.(
-                          [
-                            `【${selected.formType}】${selected.subject}`,
-                            `提交日期：${formatFiledAt(selected.filedAt)}`,
-                            selected.keyPoints?.[0] ? `简介：${selected.keyPoints[0]}` : '',
-                            `摘要：${selected.summary}`,
-                            selected.secLink ? `SEC 链接：${selected.secLink}` : '',
-                          ].filter(Boolean).join('\n'),
-                          '公告详情已复制',
+                        {f.status === 'published' && f.publishedPostId && onViewPublishedPost && (
+                          <button
+                            type="button"
+                            onClick={() => onViewPublishedPost(f.publishedPostId!)}
+                            className="inline-flex items-center justify-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold text-sky-700 bg-sky-50 border border-sky-100 hover:bg-sky-100 hover:border-sky-200 transition"
+                          >
+                            <Megaphone size={14} />
+                            查看已发布动态
+                          </button>
                         )}
-                        className="inline-flex items-center justify-center gap-1 min-h-[38px] sm:min-h-[40px] px-2.5 sm:px-3 rounded-xl text-[12px] sm:text-[12.5px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 hover:bg-white hover:border-slate-300 hover:text-slate-800 transition shadow-sm"
-                      >
-                        <Copy size={13} />
-                        <span className="hidden sm:inline">复制全文</span>
-                        <span className="sm:hidden">复制</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDownloadFile?.({ name: selected.rawFile.name, url: selected.rawFile.url })}
-                        className="inline-flex items-center justify-center gap-1 min-h-[38px] sm:min-h-[40px] px-2.5 sm:px-3 rounded-xl text-[12px] sm:text-[12.5px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800 transition shadow-sm"
-                        title={`下载原文：${selected.rawFile.name}`}
-                      >
-                        <Download size={13} />
-                        <span className="hidden sm:inline">下载 PDF 原文</span>
-                        <span className="sm:hidden">下载</span>
-                        {selected.rawFile?.size ? <span className="text-[10.5px] text-slate-400 ml-0.5 tabular-nums">{selected.rawFile.size}</span> : null}
-                      </button>
+                        {f.status === 'need_review' && isIRPRAdmin && (
+                          <div className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold text-amber-700 bg-amber-50 border border-amber-100">
+                            <AlertCircle size={14} />
+                            需后端 LLM 解析 PDF 后生成结构化内容
+                          </div>
+                        )}
+                        {f.status === 'summarizing' && (
+                          <div className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100">
+                            <Loader2 size={14} className="animate-spin" />
+                            AI 正在解析 PDF 原文…预计 30–120 秒
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto sm:justify-end">
+                        {f.secLink && (
+                          <a
+                            href={f.secLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center gap-1 min-h-[38px] sm:min-h-[40px] px-2.5 sm:px-3 rounded-xl text-[12px] sm:text-[12.5px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition shadow-sm"
+                            title={`在 SEC EDGAR 查看：${f.id}`}
+                          >
+                            <ExternalLink size={13} />
+                            <span className="hidden sm:inline">查看 SEC 原文页</span>
+                            <span className="sm:hidden">SEC 原文</span>
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onCopyText?.(
+                            [
+                              `【${f.formType}】${f.subject}`,
+                              `提交日期：${formatFiledAt(f.filedAt)}`,
+                              f.keyPoints?.[0] ? `简介：${f.keyPoints[0]}` : '',
+                              `摘要：${f.summary}`,
+                              f.secLink ? `SEC 链接：${f.secLink}` : '',
+                            ].filter(Boolean).join('\n'),
+                            '公告详情已复制',
+                          )}
+                          className="inline-flex items-center justify-center gap-1 min-h-[38px] sm:min-h-[40px] px-2.5 sm:px-3 rounded-xl text-[12px] sm:text-[12.5px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 hover:bg-white hover:border-slate-300 hover:text-slate-800 transition shadow-sm"
+                        >
+                          <Copy size={13} />
+                          <span className="hidden sm:inline">复制全文</span>
+                          <span className="sm:hidden">复制</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDownloadFile?.({ name: f.rawFile.name, url: f.rawFile.url })}
+                          className="inline-flex items-center justify-center gap-1 min-h-[38px] sm:min-h-[40px] px-2.5 sm:px-3 rounded-xl text-[12px] sm:text-[12.5px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800 transition shadow-sm"
+                          title={`下载原文：${f.rawFile.name}`}
+                        >
+                          <Download size={13} />
+                          <span className="hidden sm:inline">下载 PDF 原文</span>
+                          <span className="sm:hidden">下载</span>
+                          {f.rawFile?.size ? <span className="text-[10.5px] text-slate-400 ml-0.5 tabular-nums">{f.rawFile.size}</span> : null}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </article>
-              )}
+                  </article>
+                );
+              })}
             </div>
           </div>
         )}
@@ -608,7 +611,6 @@ interface ListPanelProps {
   filteredFilings: SECFilingSummary[];
   selectedFiling: SECFilingSummary | null;
   onSelectFiling: (nextId: string) => void;
-  onChangeSummaryExpanded?: (next: boolean) => void;
   isIRPRAdmin?: boolean;
 }
 
@@ -617,7 +619,6 @@ export function SECFilingListPanel({
   filteredFilings,
   selectedFiling,
   onSelectFiling,
-  onChangeSummaryExpanded,
   isIRPRAdmin = true,
 }: ListPanelProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -645,7 +646,7 @@ export function SECFilingListPanel({
               </span>
             </div>
             <div className="mt-1 text-[10.5px] sm:text-[11px] text-slate-500 leading-none">
-              点击任意一条，左侧显示详细内容
+              快速索引 · 点击跳转左侧对应位置
             </div>
           </div>
         </div>
@@ -668,7 +669,6 @@ export function SECFilingListPanel({
             selected={selected?.id === f.id}
             onClick={() => {
               onSelectFiling(f.id);
-              onChangeSummaryExpanded?.(false);
               const el = document.getElementById(`sec-filing-${f.id}`);
               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }}

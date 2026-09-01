@@ -68,7 +68,16 @@ export default function IRPRHomePage() {
   const [filingSort, setFilingSort] = useState<FilingSortType>('latest_filed');
   const [filingSearch, setFilingSearch] = useState('');
   const [selectedFilingId, setSelectedFilingId] = useState<string | null>(null);
-  const [filingSummaryExpanded, setFilingSummaryExpanded] = useState(false);
+  const [expandedSummaryIds, setExpandedSummaryIds] = useState<Set<string>>(new Set());
+
+  const toggleFilingSummaryExpanded = useCallback((id: string) => {
+    setExpandedSummaryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const { filteredFilings, filingStats } = useMemo(() => {
     let reviewCount = 0;
@@ -141,7 +150,7 @@ export default function IRPRHomePage() {
     const exists = filings.some((f) => f.id === initialFilingId);
     if (exists) {
       setSelectedFilingId(initialFilingId);
-      setFilingSummaryExpanded(true);
+      setExpandedSummaryIds((prev) => new Set(prev).add(initialFilingId));
     }
     setInitialFilingId(null);
   }, [initialFilingId, selectedFilingId, filings]);
@@ -938,8 +947,8 @@ export default function IRPRHomePage() {
                 onSelectFiling={(id) => {
                   setSelectedFilingId(id);
                 }}
-                summaryExpanded={filingSummaryExpanded}
-                onChangeSummaryExpanded={setFilingSummaryExpanded}
+                expandedSummaryIds={expandedSummaryIds}
+                onToggleSummaryExpanded={toggleFilingSummaryExpanded}
                 formFilter={filingFormFilter as any}
                 onFormFilterChange={(next) => setFilingFormFilter(next as any)}
                 statusFilter={filingStatusFilter as any}
@@ -987,9 +996,7 @@ export default function IRPRHomePage() {
                 selectedFiling={selectedFiling}
                 onSelectFiling={(id) => {
                   setSelectedFilingId(id);
-                  setFilingSummaryExpanded(false);
                 }}
-                onChangeSummaryExpanded={setFilingSummaryExpanded}
                 isIRPRAdmin={isIRPRAdmin}
               />
             ) : (
