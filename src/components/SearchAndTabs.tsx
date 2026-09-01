@@ -5,13 +5,15 @@ export type FeedFilterOption = 'all' | 'pinned' | 'file' | 'webpage' | 'image' |
 export type FeedSortOption = 'latest' | 'oldest' | 'hot';
 
 interface Props {
+  className?: string;
   value: string;
   onChange: (v: string) => void;
-  tab: 'all' | 'mine' | 'saved';
-  onTab: (t: 'all' | 'mine' | 'saved') => void;
+  tab: 'all' | 'mine' | 'saved' | 'filings';
+  onTab: (t: 'all' | 'mine' | 'saved' | 'filings') => void;
   savedCount: number;
   mineCount: number;
   totalCount: number;
+  filingsCount: number;
   filterBy: FeedFilterOption;
   onFilterChange: (filter: FeedFilterOption) => void;
   sortBy: FeedSortOption;
@@ -20,6 +22,7 @@ interface Props {
 
 const TABS: { key: Props['tab']; label: string }[] = [
   { key: 'all', label: '全部动态' },
+  { key: 'filings', label: '公告汇总' },
   { key: 'mine', label: '我的发布' },
   { key: 'saved', label: '我的收藏' },
 ];
@@ -40,6 +43,7 @@ const SORT_OPTIONS: Array<{ key: FeedSortOption; label: string; description: str
 ];
 
 export default function SearchAndTabs({
+  className,
   value,
   onChange,
   tab,
@@ -47,14 +51,15 @@ export default function SearchAndTabs({
   savedCount,
   mineCount,
   totalCount,
+  filingsCount,
   filterBy,
   onFilterChange,
   sortBy,
   onSortChange,
 }: Props) {
   const counts = useMemo(
-    () => ({ all: totalCount, mine: mineCount, saved: savedCount }),
-    [totalCount, mineCount, savedCount]
+    () => ({ all: totalCount, mine: mineCount, saved: savedCount, filings: filingsCount }),
+    [totalCount, mineCount, savedCount, filingsCount]
   );
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
@@ -84,7 +89,7 @@ export default function SearchAndTabs({
   }, []);
 
   return (
-    <div className="space-y-3 sm:space-y-4">
+    <div className={["space-y-3 sm:space-y-4", className ?? ''].filter(Boolean).join(' ')}>
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="relative group">

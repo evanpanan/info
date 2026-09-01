@@ -1,4 +1,10 @@
-import type { TimelinePost, OfficialChannel, IRPRCalendarEvent, CalendarTagDef } from '../types/irpr';
+import type {
+  TimelinePost,
+  OfficialChannel,
+  IRPRCalendarEvent,
+  CalendarTagDef,
+  SECFilingSummary,
+} from '../types/irpr';
 
 export const DEFAULT_CALENDAR_TAGS: CalendarTagDef[] = [
   { id: 'earnings', label: '财报发布', tone: 'rose' },
@@ -471,3 +477,506 @@ export const mockCalendarEvents: IRPRCalendarEvent[] = [
     organizer: '高盛高华 · 联合主办',
   },
 ];
+
+const PLACEHOLDER_AI_PREFIX =
+  '【AI 文档摘要·占位·待接入 LLM 后将替换为真实 OCR + 结构化抽取】';
+
+function filingSummaryTemplate(opts: {
+  id: string;
+  formType: SECFilingSummary['formType'];
+  filedAt: string;
+  fileName: string;
+  fileSize: string;
+  subject: string;
+  counterparty?: string;
+  tags: string[];
+  keyFigures: SECFilingSummary['keyFigures'];
+  keyPoints: string[];
+  aiRisk?: SECFilingSummary['aiRisk'];
+  status?: SECFilingSummary['status'];
+  secLink?: string;
+  issuer?: string;
+  publishedPostId?: string;
+}): SECFilingSummary {
+  const {
+    id,
+    formType,
+    filedAt,
+    fileName,
+    fileSize,
+    subject,
+    counterparty,
+    tags,
+    keyFigures,
+    keyPoints,
+    aiRisk = 'low',
+    status = 'ready',
+    secLink,
+    issuer = 'XMAX (XMax Inc · NASDAQ)',
+    publishedPostId,
+  } = opts;
+  const kp = keyPoints.map((k) => k.replace(/^/, '• '));
+  const summary =
+    `${PLACEHOLDER_AI_PREFIX}\n本${formType}于 ${filedAt} 提交至 SEC，核心事由：「${subject}」${
+      counterparty ? `，交易对手：${counterparty}` : ''
+    }。接入 LLM 后将自动提取：① 事由与背景；② 关键交易条款（金额、对价、交割条件、锁定期/限售期）；③ 对财务报表与经营现金流的直接影响；④ 公司治理与合规提示（董事变动、内幕交易窗口）；⑤ 后续需关注的重要节点（股东大会/SEC 生效/限售解禁日）。以下要点为文件名规则抽取的占位数据，接入真实 PDF OCR 与 GPT-4o-mini 结构化总结后将自动替换。\n\n核心要点：\n${kp.join(
+      '\n'
+    )}`;
+  const baseName = fileName.replace(/\.[^.]+$/, '');
+  return {
+    id,
+    formType,
+    filedAt,
+    issuer,
+    subject,
+    counterparty,
+    summary,
+    keyPoints,
+    keyFigures,
+    tags,
+    aiRisk,
+    rawFile: {
+      id: `file-${id}`,
+      name: `${baseName}.pdf`,
+      size: fileSize,
+      type: 'pdf',
+      url: `#filing-${id}`,
+    },
+    secLink,
+    status,
+    publishedPostId,
+    ingestedAt: new Date(new Date(filedAt).getTime() + 1000 * 60 * 60 * 8).toISOString(),
+    ingestedBy: 'a0',
+  };
+}
+
+export const mockFilingSummaries: SECFilingSummary[] = [
+  filingSummaryTemplate({
+    id: 'f-2026-0814-10q',
+    formType: '10-Q',
+    filedAt: '2026-08-14',
+    fileName: '10-Q_XMAX_20260814_半年报_2026上半年.pdf',
+    fileSize: '1.15 MB',
+    subject: '2026 上半年半年报（10-Q）',
+    tags: ['10-Q', '财报发布', '半年报', 'Q2'],
+    keyFigures: [
+      { label: '报告期营收', value: '待接入 PDF 抽取', tone: 'neutral' },
+      { label: '同比增速', value: '+42%（来自新闻稿占位）', tone: 'positive' },
+      { label: '毛利率变动', value: '+3.1 ppts（占位）', tone: 'positive' },
+      { label: '海外收入占比', value: '首次突破 40%（占位）', tone: 'positive' },
+    ],
+    keyPoints: [
+      '覆盖 2026 年 4 月 1 日 – 6 月 30 日，即 Q2 + H1 合并口径',
+      '包含未经审计的合并利润表/资产负债表/现金流量表 + MD&A 管理层讨论',
+      '关键风险提示项：海外业务汇率敞口、GPU 集群订单交付节奏、AI 基金认购回款周期',
+      '已与 2026 Q2 财报电话会同步，报名信息见「投资者日历」栏目',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0730-13g',
+    formType: '13G',
+    filedAt: '2026-07-30',
+    fileName: '13G_XMAX_20260730_BlackRock持股_7%442.5万股.pdf',
+    fileSize: '112 KB',
+    subject: 'BlackRock 被动持股达 7%（SCHEDULE 13G）',
+    counterparty: 'BlackRock, Inc.',
+    tags: ['13G', '机构持仓', 'BlackRock', '投资者结构'],
+    keyFigures: [
+      { label: '持股比例', value: '7.00%', tone: 'positive' },
+      { label: '持股数量', value: '442.5 万股', tone: 'positive' },
+      { label: '申报类型', value: '13G 被动型（非积极股东）', tone: 'neutral' },
+      { label: '报告事件日', value: '2026-06-30', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'BlackRock 通过旗下 iShares ETF 等系列被动指数基金持仓，未谋求董事会席位/控制权',
+      '按 8.93 美元收盘价估算，持仓市值约 3,951 万美元（占位计算）',
+      '13G 属于被动持仓豁免申报，相比 13D 不具有积极股东意图，属于利好偏中性信号',
+      '后续关注：Vanguard / State Street 是否同步出现在 13F/13G 名单，形成三大被动指数共同持有',
+    ],
+    aiRisk: 'low',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0615-10q',
+    formType: '10-Q',
+    filedAt: '2026-06-15',
+    fileName: '10-Q_XMAX_20260615_季报_2026一季度.pdf',
+    fileSize: '2.25 MB',
+    subject: '2026 Q1 季度报告（10-Q）',
+    tags: ['10-Q', '财报发布', 'Q1'],
+    keyFigures: [
+      { label: 'Q1 营收', value: '待 PDF 抽取', tone: 'neutral' },
+      { label: '经调整 EBITDA', value: '待 PDF 抽取', tone: 'neutral' },
+      { label: '在手订单', value: '待 PDF 抽取', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '2026 年 1 月 1 日 – 3 月 31 日季度口径',
+      '将作为 H1 半年报同比数据的对比基准',
+      '关注 GPU 集群服务收入的季节性拆分与毛利率变化',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0514-coo-form3',
+    formType: 'FORM3',
+    filedAt: '2026-05-14',
+    fileName: 'FORM3 XMAX 20260514 COO股权初始申报 赵奕舟零持股.pdf',
+    fileSize: '79.0 KB',
+    subject: '新任 COO 赵奕舟初始持股申报（FORM 3 初始报告）',
+    counterparty: '赵奕舟 (Yizhou Zhao)',
+    tags: ['FORM3', '高管变动', 'COO', '公司治理'],
+    keyFigures: [
+      { label: '直接持股', value: '0 股', tone: 'neutral' },
+      { label: '期权/RSU', value: '待 LLM 从附件抽取', tone: 'neutral' },
+      { label: '受益所有权', value: '仅报告人本人，无配偶/子女代持', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'FORM 3 为新加入董事/高管首次提交的初始持股声明，属于常规合规申报',
+      '当前报告人初始持股为零，关注后续 FORM 4（持股变动）出现 RSU 授予或行权',
+      '建议与 8-K 高管聘用公告交叉对照任职日期、薪酬结构与股权锁定条款',
+    ],
+    aiRisk: 'low',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0508-corresp-s3',
+    formType: 'CORRESP',
+    filedAt: '2026-05-08',
+    fileName: 'CORRESP_XMAX_20260508_申请S-3加速生效_10亿美元货架.pdf',
+    fileSize: '79.0 KB',
+    subject: 'CORRESP 函件：申请 S-3 货架注册加速生效（10 亿美元）',
+    counterparty: 'SEC · Division of Corporation Finance',
+    tags: ['CORRESP', '融资', 'S-3', '货架注册', '10亿美元货架'],
+    keyFigures: [
+      { label: 'S-3 注册总额', value: '10 亿美元货架', tone: 'neutral' },
+      { label: '请求生效日', value: '申请加速 +0 天（占位）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'CORRESP 是公司与 SEC 审核员的往来信函，不含新的实质条款',
+      '此次为请求 SEC 对 S-3 货架注册「加速生效」，即允许后续在窗口期直接定价增发',
+      '配合后续 424B5 / 8-K 定向增发公告，形成「货架-定价-交割」三段式融资节奏',
+      '投资者关注：S-3 生效后 12 个月内稀释上限约 10 亿美元，按现价 ~1,120 万股摊薄估算',
+    ],
+    aiRisk: 'medium',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0324-ai-strategy-8k',
+    formType: '8-K',
+    filedAt: '2026-03-24',
+    fileName: '8-K_XMAX_20260324_AI战略扩张_新闻公告.pdf',
+    fileSize: '158 KB',
+    subject: '8-K Item 8.01：AI 战略扩张新闻公告同步披露',
+    tags: ['8-K', '公司动态', 'AI战略', 'GPU集群'],
+    keyFigures: [
+      { label: '资本开支指引', value: '待 PDF 抽取', tone: 'neutral' },
+      { label: '合作客户数', value: '待 PDF 抽取', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '对应事项 8-K 披露：与此前 08-27 AI 订单披露帖属于同一战略线',
+      '关注 MD&A 中对 AI 集群毛利率、交付周期、能源成本结构的拆分',
+      '建议作为后续季度业绩会的 AI 业务进度对照基线',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0331-pp-regs',
+    formType: '424B5',
+    filedAt: '2026-03-31',
+    fileName: '424B5_XMAX_20260331_注册直接发行_3595.5万美元.pdf',
+    fileSize: '684 KB',
+    subject: '424B5 注册直接发行定价 3,595.5 万美元（PIPE/RegS 配套）',
+    counterparty: '定向投资者名单（见附件 A 占位）',
+    tags: ['424B5', '融资', '注册直接发行', '3595万美元融资'],
+    keyFigures: [
+      { label: '发行总金额', value: '3,595.5 万美元', tone: 'neutral' },
+      { label: '每股发行价', value: '待抽取（大概率含折价）', tone: 'neutral' },
+      { label: '股份数+认股权证', value: '待 LLM 抽取', tone: 'neutral' },
+      { label: '锁定期', value: '通常 6 个月（占位）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '424B5 是注册直接发行的最终招股补充书，正式确定发行价、发行量、认股权证条款',
+      '与同日 8-K「定向增发协议」形成配套：8-K 签协议、424B5 SEC 注册生效并定价',
+      '关注折价率、反稀释条款（full ratchet / weighted-average）、以及投资者是否为 13G 机构',
+      '关键里程碑：6 个月锁定期到期前需在日历自动提醒，关注解禁抛压',
+    ],
+    aiRisk: 'medium',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0331-8k-pipe',
+    formType: '8-K',
+    filedAt: '2026-03-31',
+    fileName: '8-K_XMAX_20260331_定向增发协议_3595.5万美元.pdf',
+    fileSize: '169 KB',
+    subject: '8-K Item 1.01：签订 3,595.5 万美元定向增发协议',
+    counterparty: '特定合格投资者（424B5 中披露）',
+    tags: ['8-K', '融资', '定向增发', '3595万美元融资'],
+    keyFigures: [
+      { label: '协议总额', value: '3,595.5 万美元', tone: 'neutral' },
+      { label: '交割条件', value: 'S-3 生效 + 最低净现金（占位）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '通常与 424B5 同日落袋，8-K 披露合同主体条款，424B5 披露最终定价',
+      'Item 1.01 属于「签订重大协议」强制 4 个工作日内披露',
+      '注意与 S-3 货架、后续融资公告（如 RegS 700 万美元）合并统计总融资进度',
+    ],
+    aiRisk: 'medium',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0331-regs-8k',
+    formType: '8-K',
+    filedAt: '2026-03-31',
+    fileName: '8-K_XMAX_20260331_RegS私募增发_700万美元.pdf',
+    fileSize: '165 KB',
+    subject: '8-K Item 1.01：Reg S 境外私募增发 700 万美元',
+    counterparty: '境外合格投资者（非美国人士，Reg S 管辖）',
+    tags: ['8-K', '融资', 'RegS', '私募', '700万美元融资'],
+    keyFigures: [
+      { label: 'RegS 发行额', value: '700 万美元', tone: 'neutral' },
+      { label: '限售期（Rule 903/904）', value: '通常 6 个月（占位）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'Reg S 发行面向境外非美国人士，不构成美国注册发行',
+      '与同日注册直接发行 3,595.5 万美元合计 = 4,295.5 万美元同一窗口期融资',
+      '关注：RegS 转售注册权（Registration Rights Agreement）是否同步在 EX-10.1 披露',
+    ],
+    aiRisk: 'medium',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0206-xai-fund-8k',
+    formType: '8-K',
+    filedAt: '2026-02-06',
+    fileName: '8-K_XMAX_20260206_xAI基金追加认购_305万美元.pdf',
+    fileSize: '169 KB',
+    subject: '8-K：对 xAI 关联产业基金追加认购 305 万美元',
+    counterparty: 'xAI 关联产业基金（GP 占位）',
+    tags: ['8-K', '对外投资', 'xAI基金', 'GP/LP', 'AI基金'],
+    keyFigures: [
+      { label: '本次追加认购', value: '305 万美元', tone: 'neutral' },
+      { label: '累计承诺出资', value: '537.5 + 305 + 846 = 1,688.5 万美元（占位合计）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '属于 AI 基金认购计划的第三次追投，后续仍可能按季度/项目节奏追加',
+      '关注：基金 IRR 回拨条款、项目分红时点、XMax 从该基金获得的订单协同',
+      '建议按季度汇总合并所有 AI 基金合计出资额，展示于投资者关系问答页面',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0203-loan-8k',
+    formType: '8-K',
+    filedAt: '2026-02-03',
+    fileName: '8-K_XMAX_20260203_对外贷款_530万美元.pdf',
+    fileSize: '166 KB',
+    subject: '8-K Item 2.03：签订 530 万美元对外贷款协议',
+    counterparty: '借款方（占位：关联公司 / 合作伙伴）',
+    tags: ['8-K', '对外贷款', '资产负债表', '现金流'],
+    keyFigures: [
+      { label: '贷款本金', value: '530 万美元', tone: 'neutral' },
+      { label: '年化利率', value: '待抽取', tone: 'neutral' },
+      { label: '期限 + 担保', value: '待抽取', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'Item 2.03 属于「产生直接或有负债」强制披露项',
+      '需核查贷款是否为关联方交易（Reg S-K Item 404），如为关联方交易还需同步披露在 10-Q 关联交易章节',
+      '关注后续季度：是否如期还本付息、是否发生减值/坏账迹象',
+    ],
+    aiRisk: 'medium',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0109-dir-8k',
+    formType: '8-K',
+    filedAt: '2026-01-09',
+    fileName: '8-K_XMAX_20260109_董事变动_独董更替.pdf',
+    fileSize: '166 KB',
+    subject: '8-K Item 5.02：独立董事更替（董事会重组）',
+    counterparty: '离任独董 × 1 位、新任独董 × 1 位（占位）',
+    tags: ['8-K', '董事变动', '公司治理', '独董', '审计委员会'],
+    keyFigures: [
+      { label: '离任独董人数', value: '1 位', tone: 'neutral' },
+      { label: '新任独董人数', value: '1 位', tone: 'neutral' },
+      { label: '审计/薪酬/提名委员会', value: '需核查是否同步改组（占位）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'Item 5.02 为董事/高管离任或任命强制 4 工作日内披露',
+      '关注独董离任原因：「与公司无分歧」字句是否出现（无分歧=常规换届，有分歧=需深挖）',
+      '关注新任独董专业背景是否补强审计/薪酬/ESG/AI 治理某一短板',
+    ],
+    aiRisk: 'medium',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1222-direct-8k',
+    formType: '8-K',
+    filedAt: '2025-12-22',
+    fileName: '8-K_XMAX_20251222_注册直接发行_499.94万美元.pdf',
+    fileSize: '168 KB',
+    subject: '8-K：签订 499.94 万美元注册直接发行协议',
+    counterparty: '合格机构投资者（占位）',
+    tags: ['8-K', '融资', '注册直接发行', '499.94万美元融资'],
+    keyFigures: [
+      { label: '发行金额', value: '499.94 万美元', tone: 'neutral' },
+      { label: '对应 424B5', value: '20251219 / 20260331 两份，本次为前序批次', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '与 424B5_20251219 配对，为第一批次注册直接发行',
+      '对比 2026-03-31 后续批次 3,595.5 万美元，检查折价率是否扩大/收窄',
+      '关注累计 10 亿 S-3 货架用款进度',
+    ],
+    aiRisk: 'medium',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1222-xai-fund-8k-2',
+    formType: '8-K',
+    filedAt: '2025-12-22',
+    fileName: '8-K_XMAX_20251222_xAI基金追加认购_537.5万美元.pdf',
+    fileSize: '170 KB',
+    subject: '8-K：对 xAI 关联产业基金追加认购 537.5 万美元',
+    counterparty: 'xAI 关联产业基金（GP 占位）',
+    tags: ['8-K', '对外投资', 'xAI基金', 'AI基金'],
+    keyFigures: [
+      { label: '本次追加', value: '537.5 万美元', tone: 'neutral' },
+      { label: '累计至此', value: '1,383.5 万美元（合 846 + 537.5，占位）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'xAI 基金系列认购第二笔，见 2025-12-08 首次 846 万美元 + 2026-02-06 再次 305 万美元合计',
+      '建议在投资者关系 FAQ 页面加入「xAI 基金累计出资额」合并展示卡片（接入真实 LLM 后自动加总）',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1219-424b5',
+    formType: '424B5',
+    filedAt: '2025-12-19',
+    fileName: '424B5_XMAX_20251219_增发招股书_499.94万美元.pdf',
+    fileSize: '675 KB',
+    subject: '424B5 增发招股补充书：499.94 万美元注册直接发行',
+    tags: ['424B5', '融资', '增发招股书', '499.94万美元融资'],
+    keyFigures: [
+      { label: '募资总额', value: '499.94 万美元', tone: 'neutral' },
+      { label: '每股发行价', value: '待 PDF 抽取', tone: 'neutral' },
+      { label: '摊薄比例', value: '待 LLM 抽取总股本后计算', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '对应 2025-12-22 8-K 注册直接发行协议的 SEC 最终招股文件',
+      '风险因素章节需重点阅读：业务/融资后股权结构变化/诉讼',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1208-xai-equity-8k',
+    formType: '8-K',
+    filedAt: '2025-12-08',
+    fileName: '8-K_XMAX_20251208_xAI股权投资_846万美元.pdf',
+    fileSize: '170 KB',
+    subject: '8-K：完成对 xAI 产业基金首笔股权投资 846 万美元',
+    counterparty: 'xAI 关联产业基金（占位）',
+    tags: ['8-K', '对外投资', 'xAI基金', '股权投资'],
+    keyFigures: [
+      { label: '首笔出资', value: '846 万美元', tone: 'neutral' },
+      { label: '总承诺出资', value: '占位：分三批合计 ~1,688.5 万美元', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '为 AI 基金系列首笔出资，后续两笔分别为 537.5 万（2025-12-22）+ 305 万（2026-02-06）',
+      '注意：对外投资属于长期资产类，对当期利润表影响为投资损益/减值，不直接计入营收',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1126-spacex-8k',
+    formType: '8-K',
+    filedAt: '2025-11-26',
+    fileName: '8-K_XMAX_20251126_SpaceX投资完成_560.5万美元.pdf',
+    fileSize: '160 KB',
+    subject: '8-K Item 8.01：完成对 SpaceX 战略投资 560.5 万美元',
+    counterparty: 'SpaceX（战略跟投 / 二级老股，占位）',
+    tags: ['8-K', '对外投资', 'SpaceX', '战略投资'],
+    keyFigures: [
+      { label: '出资金额', value: '560.5 万美元', tone: 'neutral' },
+      { label: '持股方式', value: '待抽取（直接 / 通过 SPV / 老股）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '属于非主业战略投资类，建议在投资者关系页面单列「对外投资组合」模块',
+      '关注按季度 Fair Value 变动对 OCI（其他综合收益）的影响',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1121-convertible-8k',
+    formType: '8-K',
+    filedAt: '2025-11-21',
+    fileName: '8-K_XMAX_20251121_可转债融资_500万美元.pdf',
+    fileSize: '167 KB',
+    subject: '8-K Item 2.03 / 3.02：完成 500 万美元可转债融资',
+    counterparty: '可转债认购方（占位：机构投资者）',
+    tags: ['8-K', '融资', '可转债', '500万美元融资'],
+    keyFigures: [
+      { label: '发行本金', value: '500 万美元', tone: 'neutral' },
+      { label: '转换溢价', value: '待抽取（通常 20-30%）', tone: 'neutral' },
+      { label: '票息', value: '待抽取（通常 2-6% 年化）', tone: 'neutral' },
+      { label: '到期日', value: '通常 3-5 年（占位）', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '混合证券：同时计入负债（摊余成本）+ 权益转换权（公允价值），财务建模需分拆',
+      '关键事件：转股价触发（股价超过转股溢价+票息）、回售条款、赎回条款（软/硬）',
+      '如为 OID（Original Issue Discount）发行，实际融资额低于 500 万，需按利息摊销',
+    ],
+    aiRisk: 'high',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1119-ceo-8k',
+    formType: '8-K',
+    filedAt: '2025-11-19',
+    fileName: '8-K_XMAX_20251119_董事长辞任_ThanhLam.pdf',
+    fileSize: '157 KB',
+    subject: '8-K Item 5.02：董事长 Thanh Lam 辞任',
+    counterparty: 'Thanh Lam（离任董事长）',
+    tags: ['8-K', '董事长变动', 'ThanhLam', '公司治理'],
+    keyFigures: [
+      { label: '离任日期', value: '2025-11-19（生效）', tone: 'negative' },
+      { label: '是否有分歧披露', value: '待 LLM 抽取「无分歧」字句', tone: 'neutral' },
+      { label: '补偿/离职金', value: '待抽取 Separation Agreement', tone: 'neutral' },
+    ],
+    keyPoints: [
+      'Item 5.02 强制 4 工作日披露，关注离任原因措辞（自愿退休 / 战略分歧 / 个人原因）',
+      '关键：如披露「与公司在经营战略或公司治理上无任何分歧」则属于常规换届；否则为负面信号',
+      '还需核查是否同步披露新任董事长 / 代理董事长任命，避免治理空窗期',
+    ],
+    aiRisk: 'high',
+    status: 'need_review',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2025-1114-10q',
+    formType: '10-Q',
+    filedAt: '2025-11-14',
+    fileName: '10-Q_XMAX_20251114_季报_2025三季度.pdf',
+    fileSize: '1.59 MB',
+    subject: '2025 Q3 季度报告（10-Q）',
+    tags: ['10-Q', '财报发布', 'Q3', '2025Q3'],
+    keyFigures: [
+      { label: 'Q3 营收', value: '待 PDF 抽取', tone: 'neutral' },
+      { label: '毛利率', value: '待 PDF 抽取', tone: 'neutral' },
+      { label: '经营现金流', value: '待 PDF 抽取', tone: 'neutral' },
+    ],
+    keyPoints: [
+      '覆盖 2025 年 7 月 1 日 – 9 月 30 日季度',
+      '与 2026 Q1/Q2 做同比对比基准，识别季节性与成长性',
+      '风险因素章节关注：GPU 供应链集中度、海外汇率、大客户集中度',
+    ],
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0310-published-8k-sample',
+    formType: '8-K',
+    filedAt: '2026-03-10',
+    fileName: '8-K_XMAX_20260310_已发布演示_需要_ai_low.pdf',
+    fileSize: '160 KB',
+    subject: '已发布到动态的 8-K 演示（status=published）',
+    tags: ['8-K', '演示数据'],
+    keyFigures: [{ label: '演示用', value: '仅占位', tone: 'neutral' }],
+    keyPoints: ['本条目用于演示「已发布」状态，在列表显示已发布徽标'],
+    status: 'published',
+    publishedPostId: 'earnings-q2-2026',
+  }),
+  filingSummaryTemplate({
+    id: 'f-2026-0901-summarizing-placeholder',
+    formType: '8-K',
+    filedAt: '2026-09-01',
+    fileName: '8-K_XMAX_20260901_刚上传_处理中_演示.pdf',
+    fileSize: '165 KB',
+    subject: '刚上传的 8-K：AI 总结处理中（演示 summarizing 状态）',
+    tags: ['8-K', '演示数据', '处理中'],
+    keyFigures: [{ label: 'LLM 进度', value: '解析 PDF → 结构化抽取 → 总结（占位）', tone: 'neutral' }],
+    keyPoints: ['此条目用于演示「AI 总结进行中」状态徽标，接入真实后端后自动变为 ready'],
+    status: 'summarizing',
+  }),
+];
+

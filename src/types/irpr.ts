@@ -191,3 +191,42 @@ export interface IRPRCalendarEvent {
   organizer?: string;
   important?: boolean;
 }
+
+export type SECFormType =
+  | '8-K'
+  | '10-Q'
+  | '10-K'
+  | '13G'
+  | '424B5'
+  | 'FORM3'
+  | 'FORM4'
+  | 'CORRESP'
+  | 'OTHER';
+
+export interface SECFilingKeyFigure {
+  label: string;
+  value: string;
+  tone: 'positive' | 'negative' | 'neutral';
+}
+
+export type SECFilingStatus = 'summarizing' | 'ready' | 'need_review' | 'published';
+
+export interface SECFilingSummary {
+  id: string;
+  formType: SECFormType;
+  filedAt: string;
+  issuer: string;
+  subject: string;
+  counterparty?: string;
+  summary: string;
+  keyPoints: string[];
+  keyFigures: SECFilingKeyFigure[];
+  tags: string[];
+  aiRisk: 'low' | 'medium' | 'high';
+  rawFile: FileAttachment;
+  secLink?: string;
+  status: SECFilingStatus;
+  publishedPostId?: string;
+  ingestedAt: string;
+  ingestedBy?: string;
+}

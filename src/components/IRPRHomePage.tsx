@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FeedPublisher from './FeedPublisher';
 import TimelineList from './TimelineList';
 import OfficialMatrix from './OfficialMatrix';
 import IRPRCalendarCard from './IRPRCalendarCard';
 import SearchAndTabs from './SearchAndTabs';
 import PushNoticeModal, { findNextUnreadPushedNotice } from './PushNoticeModal';
+import SECFilingTimeline, { SECFilingListPanel } from './SECFilingTimeline';
+import SECFilingSidebar from './SECFilingSidebar';
 import type { FeedFilterOption, FeedSortOption } from './SearchAndTabs';
 import type {
   TimelinePost,
@@ -13,9 +15,11 @@ import type {
   PostComment,
   IRPRCalendarEvent,
   CalendarTagDef,
+  SECFilingSummary,
 } from '../types/irpr';
 import { mockPosts, mockCalendarEvents, DEFAULT_CALENDAR_TAGS } from '../data/mockData';
-import { CheckCheck, X, PenSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { fetchXMaxSECFilings } from '../utils/secEdgar';
+import { CheckCheck, X, PenSquare, ChevronDown, ChevronUp, AlertCircle, Loader2 } from 'lucide-react';
 
 /*
   账号体系接入说明（预留）：
@@ -41,13 +45,106 @@ export default function IRPRHomePage() {
   const [posts, setPosts] = useState<TimelinePost[]>(mockPosts);
   const [calendarEvents, setCalendarEvents] = useState<IRPRCalendarEvent[]>(mockCalendarEvents);
   const [calendarTags, setCalendarTags] = useState<CalendarTagDef[]>(DEFAULT_CALENDAR_TAGS);
+  const [filings, setFilings] = useState<SECFilingSummary[]>([]);
+  const [filingsLoading, setFilingsLoading] = useState(true);
+  const [filingsError, setFilingsError] = useState<string | null>(null);
+  const filingsAbortRef = useRef<AbortController | null>(null);
+  const filingsTickRef = useRef<number | null>(null);
+  const filingsRetryRef = useRef<number | null>(null);
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<'all' | 'mine' | 'saved'>('all');
+  const [tab, setTab] = useState<'all' | 'mine' | 'saved' | 'filings'>('all');
   const [filterBy, setFilterBy] = useState<FeedFilterOption>('all');
   const [sortBy, setSortBy] = useState<FeedSortOption>('latest');
   const [publisherOpen, setPublisherOpen] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  const [initialFilingId, setInitialFilingId] = useState<string | null>(null);
+
+  type FilingFilterFormType = 'ALL' | '8-K' | '10-Q' | '10-K' | '424B5' | '13G' | 'FORM3' | 'FORM4' | 'CORRESP' | 'OTHER';
+  type FilingFilterStatusType = 'ALL' | 'ready' | 'review_or_summarizing' | 'need_review' | 'summarizing' | 'published';
+  type FilingSortType = 'latest_filed' | 'earliest_filed' | 'latest_ingested';
+  const [filingFormFilter, setFilingFormFilter] = useState<FilingFilterFormType>('ALL');
+  const [filingStatusFilter, setFilingStatusFilter] = useState<FilingFilterStatusType>('ALL');
+  const [filingSort, setFilingSort] = useState<FilingSortType>('latest_filed');
+  const [filingSearch, setFilingSearch] = useState('');
+  const [selectedFilingId, setSelectedFilingId] = useState<string | null>(null);
+  const [filingSummaryExpanded, setFilingSummaryExpanded] = useState(false);
+
+  const { filteredFilings, filingStats } = useMemo(() => {
+    let reviewCount = 0;
+    let sumCount = 0;
+    let readyCount = 0;
+    const byForm: Record<string, number> = {};
+    for (const f of filings) {
+      byForm[f.formType] = (byForm[f.formType] ?? 0) + 1;
+      if (f.status === 'need_review') reviewCount += 1;
+      if (f.status === 'summarizing') sumCount += 1;
+      if (f.status === 'ready' || f.status === 'published') readyCount += 1;
+    }
+    const kw = filingSearch.trim().toLowerCase();
+    let arr = filings.slice();
+    if (filingFormFilter !== 'ALL') arr = arr.filter((f) => f.formType === filingFormFilter);
+    if (filingStatusFilter !== 'ALL') {
+      if (filingStatusFilter === 'review_or_summarizing')
+        arr = arr.filter((f) => f.status === 'need_review' || f.status === 'summarizing');
+      else arr = arr.filter((f) => f.status === filingStatusFilter);
+    }
+    if (kw) {
+      arr = arr.filter((f) => {
+        const hay = [
+          f.subject,
+          f.summary,
+          f.counterparty ?? '',
+          f.issuer,
+          f.rawFile.name,
+          ...(f.tags ?? []),
+          ...(f.keyPoints ?? []),
+          ...(f.keyFigures ?? []).map((k) => `${k.label} ${k.value}`),
+        ]
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(kw);
+      });
+    }
+    if (filingSort === 'latest_filed')
+      arr.sort((a, b) => +new Date(b.filedAt) - +new Date(a.filedAt));
+    else if (filingSort === 'earliest_filed')
+      arr.sort((a, b) => +new Date(a.filedAt) - +new Date(b.filedAt));
+    else
+      arr.sort(
+        (a, b) => +new Date(b.ingestedAt || 0) - +new Date(a.ingestedAt || 0)
+      );
+    return {
+      filteredFilings: arr,
+      filingStats: {
+        total: filings.length,
+        byForm,
+        readyCount,
+        reviewCount,
+        sumCount,
+      },
+    };
+  }, [filings, filingFormFilter, filingStatusFilter, filingSort, filingSearch]);
+
+  const selectedFiling: SECFilingSummary | null = useMemo(() => {
+    const byId = selectedFilingId ? filings.find((f) => f.id === selectedFilingId) : null;
+    if (byId) return byId;
+    return filteredFilings[0] ?? filings[0] ?? null;
+  }, [selectedFilingId, filteredFilings, filings]);
+
+  useEffect(() => {
+    if (selectedFiling && !selectedFilingId) setSelectedFilingId(selectedFiling.id);
+  }, [selectedFiling, selectedFilingId]);
+
+  useEffect(() => {
+    if (!initialFilingId || initialFilingId === selectedFilingId) return;
+    const exists = filings.some((f) => f.id === initialFilingId);
+    if (exists) {
+      setSelectedFilingId(initialFilingId);
+      setFilingSummaryExpanded(true);
+    }
+    setInitialFilingId(null);
+  }, [initialFilingId, selectedFilingId, filings]);
 
   const [pushedNoticePost, setPushedNoticePost] = useState<TimelinePost | null>(null);
 
@@ -58,6 +155,54 @@ export default function IRPRHomePage() {
     }, 350);
     return () => clearTimeout(t);
   }, [posts]);
+
+  const loadFilings = useCallback(async () => {
+    filingsAbortRef.current?.abort();
+    const ac = new AbortController();
+    filingsAbortRef.current = ac;
+    const tm = window.setTimeout(() => ac.abort(), 30000);
+    try {
+      setFilingsLoading(true);
+      setFilingsError(null);
+      const list = await fetchXMaxSECFilings({ signal: ac.signal });
+      setFilings(list);
+      setFilingsLoading(false);
+      if (filingsRetryRef.current) {
+        window.clearTimeout(filingsRetryRef.current);
+        filingsRetryRef.current = null;
+      }
+    } catch (e) {
+      if (ac.signal.aborted) {
+        return;
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      setFilingsError(msg);
+      setFilingsLoading(false);
+      setFilings((prev) => prev);
+      if (!filingsRetryRef.current) {
+        filingsRetryRef.current = window.setTimeout(() => {
+          filingsRetryRef.current = null;
+          void loadFilings();
+        }, 20000);
+      }
+    } finally {
+      window.clearTimeout(tm);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadFilings();
+    filingsTickRef.current = window.setInterval(() => {
+      void loadFilings();
+    }, 10 * 60 * 1000);
+    return () => {
+      filingsAbortRef.current?.abort();
+      if (filingsTickRef.current) window.clearInterval(filingsTickRef.current);
+      if (filingsRetryRef.current) window.clearTimeout(filingsRetryRef.current);
+      filingsTickRef.current = null;
+      filingsRetryRef.current = null;
+    };
+  }, [loadFilings]);
 
   const handleMarkPushedRead = useCallback(() => {
     setPushedNoticePost(null);
@@ -283,6 +428,57 @@ export default function IRPRHomePage() {
     setCommentsCounts((prev) => ({ ...prev, [newPost.id]: newPost.metrics?.comments ?? 0 }));
     setRepostsCounts((prev) => ({ ...prev, [newPost.id]: newPost.metrics?.reposts ?? 0 }));
   };
+
+  const handleFilingPublishAsPost = useCallback(
+    (filing: SECFilingSummary) => {
+      const tags = Array.isArray(filing.tags) ? filing.tags.map((t) => `#${t}`) : [];
+      const figuresBlock =
+        filing.keyFigures && filing.keyFigures.length > 0
+          ? `\n\n关键数据：\n${filing.keyFigures.map((k) => `• ${k.label}：${k.value}`).join('\n')}`
+          : '';
+      const newPost: TimelinePost = {
+        id: `filing-${filing.id}-${Date.now()}`,
+        author: CURRENT_AUTHOR,
+        publishedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        tags: tags.length > 0 ? tags : ['#SEC公告'],
+        pinned: false,
+        quotePost: null,
+        repostOf: null,
+        adminReply: null,
+        type: 'file',
+        content: `【${filing.formType}】${filing.subject}\n\n${filing.summary}${figuresBlock}`,
+        files: [filing.rawFile],
+      };
+      setPosts((prev) => [newPost, ...prev]);
+      setLikesCounts((prev) => ({ ...prev, [newPost.id]: newPost.metrics?.likes ?? 0 }));
+      setCommentsCounts((prev) => ({ ...prev, [newPost.id]: newPost.metrics?.comments ?? 0 }));
+      setRepostsCounts((prev) => ({ ...prev, [newPost.id]: newPost.metrics?.reposts ?? 0 }));
+      showToast(`已将「${filing.formType} ${filing.subject.slice(0, 18)}…」作为动态发布`, 'success');
+      setTab('all');
+    },
+    [showToast]
+  );
+
+  const handleFilingCopyText = useCallback(
+    (text: string, toastLabel?: string) => {
+      handleCopyText(text, toastLabel);
+    },
+    [handleCopyText]
+  );
+
+  const handleDownloadFile = useCallback(
+    (file: { name: string; url: string }) => {
+      const anchor = document.createElement('a');
+      anchor.href = file.url;
+      anchor.download = file.name;
+      anchor.rel = 'noopener noreferrer';
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(() => document.body.removeChild(anchor), 450);
+      showToast(`已触发下载「${file.name}」`, 'info');
+    },
+    [showToast]
+  );
 
   const editingPost = useMemo(
     () => (editingPostId ? posts.find((post) => post.id === editingPostId) ?? null : null),
@@ -639,83 +835,164 @@ export default function IRPRHomePage() {
       </div>
 
       <main className="px-4 sm:px-6 lg:px-8 pb-10">
-        <div className="grid grid-cols-12 gap-4 sm:gap-6">
-          <section className="col-span-12 lg:col-span-8 space-y-4 sm:space-y-5 min-w-0">
-            <SearchAndTabs
-              value={search}
-              onChange={setSearch}
-              tab={tab}
-              onTab={setTab}
-              savedCount={savedCount}
-              mineCount={mineCount}
-              totalCount={posts.length}
-              filterBy={filterBy}
-              onFilterChange={setFilterBy}
-              sortBy={sortBy}
-              onSortChange={setSortBy}
+        <div className="grid grid-cols-12 gap-4 sm:gap-6 items-start">
+          <SearchAndTabs
+            className="col-span-12 lg:col-span-8"
+            value={search}
+            onChange={setSearch}
+            tab={tab}
+            onTab={setTab}
+            savedCount={savedCount}
+            mineCount={mineCount}
+            totalCount={posts.length}
+            filingsCount={filings.length}
+            filterBy={filterBy}
+            onFilterChange={setFilterBy}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+          />
+          {tab !== 'filings' && (
+            <SECFilingSidebar
+              className="col-span-12 lg:col-span-4 lg:row-span-2 h-full"
+              filings={filings}
+              loading={filingsLoading}
+              errorMsg={filingsError}
+              onRetry={() => void loadFilings()}
+              isIRPRAdmin={isIRPRAdmin}
+              onOpenAll={() => {
+                setInitialFilingId(null);
+                setTab('filings');
+                setTimeout(
+                  () =>
+                    document
+                      .getElementById('irpr-filings-section')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                  30
+                );
+              }}
+              onOpenFiling={(f) => {
+                setInitialFilingId(f.id);
+                setTab('filings');
+                setTimeout(
+                  () =>
+                    document
+                      .getElementById('irpr-filings-section')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                  30
+                );
+              }}
             />
-            {canPublish && (
-              <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setPublisherOpen((v) => !v)}
-                  className={`w-full rounded-2xl border px-4 sm:px-5 py-4 text-left transition ${
-                    publisherOpen
-                      ? 'border-sky-200 bg-sky-50/70 shadow-sm shadow-sky-100/60'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${
-                          publisherOpen ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        <PenSquare size={18} strokeWidth={1.9} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[15px] font-semibold text-slate-900">发布动态</div>
-                        <div className="text-[12.5px] text-slate-500 mt-0.5">
-                          仅少数发布者需要使用，点击后展开编辑器；浏览和互动不受影响。
-                        </div>
-                      </div>
+          )}
+          {tab !== 'filings' && canPublish ? (
+            <div className="col-span-12 lg:col-span-8 space-y-3">
+              <button
+                type="button"
+                onClick={() => setPublisherOpen((v) => !v)}
+                className={`w-full rounded-2xl border px-4 sm:px-5 py-4 text-left transition ${
+                  publisherOpen
+                    ? 'border-sky-200 bg-sky-50/70 shadow-sm shadow-sky-100/60'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                        publisherOpen ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      <PenSquare size={18} strokeWidth={1.9} />
                     </div>
-                    <div className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-slate-600 flex-shrink-0">
-                      {publisherOpen ? '收起' : '展开'}
-                      {publisherOpen ? <ChevronUp size={15} strokeWidth={2} /> : <ChevronDown size={15} strokeWidth={2} />}
+                    <div className="min-w-0">
+                      <div className="text-[15px] font-semibold text-slate-900">发布动态</div>
+                      <div className="text-[12.5px] text-slate-500 mt-0.5">
+                        仅少数发布者需要使用，点击后展开编辑器；浏览和互动不受影响。
+                      </div>
                     </div>
                   </div>
-                </button>
-                {publisherOpen && (
-                  <FeedPublisher
-                    isIRPRAdmin={isIRPRAdmin}
-                    canPublish={CURRENT_AUTHOR.canPublish}
-                    currentAvatar={CURRENT_AUTHOR.avatar}
-                    onPublish={handlePublish}
-                  />
-                )}
-              </div>
+                  <div className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-slate-600 flex-shrink-0">
+                    {publisherOpen ? '收起' : '展开'}
+                    {publisherOpen ? <ChevronUp size={15} strokeWidth={2} /> : <ChevronDown size={15} strokeWidth={2} />}
+                  </div>
+                </div>
+              </button>
+              {publisherOpen && (
+                <FeedPublisher
+                  isIRPRAdmin={isIRPRAdmin}
+                  canPublish={CURRENT_AUTHOR.canPublish}
+                  currentAvatar={CURRENT_AUTHOR.avatar}
+                  onPublish={handlePublish}
+                />
+              )}
+            </div>
+          ) : (
+            tab !== 'filings' && <div className="col-span-12 lg:col-span-8 hidden sm:block" aria-hidden />
+          )}
+          {tab === 'filings' ? (
+            <div id="irpr-filings-section" className="col-span-12 lg:col-span-8 min-w-0">
+              <SECFilingTimeline
+                filings={filings}
+                filteredFilings={filteredFilings}
+                filingStats={filingStats}
+                selectedFiling={selectedFiling}
+                onSelectFiling={(id) => {
+                  setSelectedFilingId(id);
+                }}
+                summaryExpanded={filingSummaryExpanded}
+                onChangeSummaryExpanded={setFilingSummaryExpanded}
+                formFilter={filingFormFilter as any}
+                onFormFilterChange={(next) => setFilingFormFilter(next as any)}
+                statusFilter={filingStatusFilter as any}
+                onStatusFilterChange={(next) => setFilingStatusFilter(next as any)}
+                sort={filingSort as any}
+                onSortChange={(next) => setFilingSort(next as any)}
+                search={filingSearch}
+                onSearchChange={setFilingSearch}
+                isIRPRAdmin={isIRPRAdmin}
+                onPublishAsPost={handleFilingPublishAsPost}
+                onCopyText={handleFilingCopyText}
+                onDownloadFile={handleDownloadFile}
+                onViewPublishedPost={(postId) => {
+                  const found = posts.find((p) => p.id === postId);
+                  if (found) handleViewPost(found);
+                  else showToast('该公告尚未对应到已发布动态', 'info');
+                }}
+              />
+            </div>
+          ) : (
+            <section className="col-span-12 lg:col-span-8 min-w-0">
+              <TimelineList
+                posts={visiblePosts}
+                likedIds={likedIds}
+                bookmarkedIds={bookmarkedIds}
+                repostedIds={repostedIds}
+                likesCounts={likesCounts}
+                commentsCounts={commentsCounts}
+                repostsCounts={repostsCounts}
+                commentsMap={commentsMap}
+                isIRPRAdmin={isIRPRAdmin}
+                currentUserId={CURRENT_AUTHOR.id}
+                onAction={onAction}
+                onSearchKeyword={handleSearchKeyword}
+                onCopyText={handleCopyText}
+                emptyHint={emptyHint}
+              />
+              <span className="hidden">{recentShareActions.length}</span>
+            </section>
+          )}
+          <div className="col-span-12 lg:col-span-4 min-w-0 space-y-4 sm:space-y-5">
+            {tab === 'filings' && (
+              <SECFilingListPanel
+                filteredFilings={filteredFilings}
+                selectedFiling={selectedFiling}
+                onSelectFiling={(id) => {
+                  setSelectedFilingId(id);
+                  setFilingSummaryExpanded(false);
+                }}
+                onChangeSummaryExpanded={setFilingSummaryExpanded}
+                isIRPRAdmin={isIRPRAdmin}
+              />
             )}
-            <TimelineList
-              posts={visiblePosts}
-              likedIds={likedIds}
-              bookmarkedIds={bookmarkedIds}
-              repostedIds={repostedIds}
-              likesCounts={likesCounts}
-              commentsCounts={commentsCounts}
-              repostsCounts={repostsCounts}
-              commentsMap={commentsMap}
-              isIRPRAdmin={isIRPRAdmin}
-              currentUserId={CURRENT_AUTHOR.id}
-              onAction={onAction}
-              onSearchKeyword={handleSearchKeyword}
-              onCopyText={handleCopyText}
-              emptyHint={emptyHint}
-            />
-            <span className="hidden">{recentShareActions.length}</span>
-          </section>
-          <aside className="col-span-12 lg:col-span-4 min-w-0 space-y-4 sm:space-y-5">
             <IRPRCalendarCard
               events={calendarEvents}
               tags={calendarTags}
@@ -729,7 +1006,7 @@ export default function IRPRHomePage() {
               onDeleteTag={handleDeleteCalendarTag}
             />
             <OfficialMatrix isIRPRAdmin={isIRPRAdmin} />
-          </aside>
+          </div>
         </div>
       </main>
 

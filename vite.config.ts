@@ -18,6 +18,21 @@ export default defineConfig({
           Referer: 'https://www.xbelievers.com/',
         },
       },
+      '/api/sec': {
+        target: 'https://data.sec.gov',
+        changeOrigin: true,
+        secure: true,
+        followRedirects: true,
+        timeout: 30000,
+        headers: {
+          Host: 'data.sec.gov',
+          'User-Agent': 'MuskZoom IR research@xmax.com',
+          Accept: 'application/json,text/plain,*/*',
+          'Accept-Encoding': 'gzip, deflate',
+          Referer: 'https://www.sec.gov/',
+        },
+        rewrite: (p) => p.replace(/^\/api\/sec/, ''),
+      },
     },
   },
 });
