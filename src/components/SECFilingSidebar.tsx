@@ -224,17 +224,6 @@ export default function SECFilingSidebar({
           </button>
         )}
       </div>
-
-      <div className="px-3 sm:px-3.5 pb-3 sm:pb-3.5 shrink-0">
-        <button
-          type="button"
-          onClick={onOpenAll}
-          className="w-full inline-flex items-center justify-center gap-1.5 min-h-[40px] sm:min-h-[42px] px-3 rounded-2xl text-[12.5px] sm:text-[13px] font-semibold text-white bg-gradient-to-br from-indigo-500 to-violet-600 shadow-[0_10px_24px_-10px_rgba(99,102,241,0.65)] hover:brightness-[1.03] active:brightness-[0.98] transition"
-        >
-          <ExternalLink size={13} />
-          去公告专区查看全部
-        </button>
-      </div>
     </aside>
   );
 }

@@ -323,21 +323,14 @@ export default function SECFilingTimeline({
                 const tone = toneFor(f.formType);
                 const statusMeta = STATUS_META[f.status];
                 const StatusIcon = statusMeta?.icon ?? Loader2;
-                const isSelected = selected?.id === f.id;
                 const expanded = expandedSummaryIds.has(f.id);
                 const longSummary = f.summary.split('\n').length > 3 || f.summary.length > 260;
                 return (
                   <article
                     key={f.id}
                     id={`sec-filing-${f.id}`}
-                    className={`relative rounded-3xl border ${isSelected ? 'ring-2 ring-indigo-400/70 border-indigo-200 bg-gradient-to-br from-indigo-50/30 via-white to-white shadow-[0_8px_30px_-18px_rgba(79,70,229,0.45)]' : `ring-1 ${tone.ring} border-slate-200/80 bg-white shadow-[0_2px_0_rgba(15,23,42,0.03),0_22px_60px_-30px_rgba(15,23,42,0.2)]`} overflow-hidden scroll-mt-4`}
+                    className={`relative rounded-3xl border ring-1 ${tone.ring} border-slate-200/80 bg-white shadow-[0_2px_0_rgba(15,23,42,0.03),0_22px_60px_-30px_rgba(15,23,42,0.2)] overflow-hidden scroll-mt-4`}
                   >
-                    {isSelected && (
-                      <div className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 text-[10.5px] sm:text-[11px] font-bold text-white bg-gradient-to-br from-indigo-500 to-violet-600 px-2 py-0.5 rounded-full shadow-[0_6px_14px_-6px_rgba(99,102,241,0.7)]">
-                        <Circle size={7} strokeWidth={0} className="fill-current" />
-                        {tone.label} · {formatFiledAt(f.filedAt)}
-                      </div>
-                    )}
                     <div
                       className={`h-1.5 sm:h-2 w-full bg-gradient-to-r ${tone.iconBg}`}
                     />
@@ -612,6 +605,9 @@ interface ListPanelProps {
   selectedFiling: SECFilingSummary | null;
   onSelectFiling: (nextId: string) => void;
   isIRPRAdmin?: boolean;
+  yearFilter?: number | 'ALL';
+  onYearFilterChange?: (next: number | 'ALL') => void;
+  yearBuckets?: Array<{ year: number; count: number }>;
 }
 
 export function SECFilingListPanel({
@@ -620,10 +616,17 @@ export function SECFilingListPanel({
   selectedFiling,
   onSelectFiling,
   isIRPRAdmin = true,
+  yearFilter = 'ALL',
+  onYearFilterChange,
+  yearBuckets = [],
 }: ListPanelProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const selected = selectedFiling;
   const filtered = filteredFilings;
+  const allCount = useMemo(
+    () => yearBuckets.reduce((sum, b) => sum + b.count, 0),
+    [yearBuckets]
+  );
   return (
     <div
       className={[
@@ -657,6 +660,54 @@ export function SECFilingListPanel({
           </div>
         )}
       </div>
+      {yearBuckets.length > 0 && (
+        <div className="px-3 sm:px-4 py-2.5 border-b border-slate-100/80 overflow-x-auto no-scrollbar -mx-1" style={{ scrollbarWidth: 'none' }}>
+          <div className="flex items-center gap-1.5 min-w-0 mx-1">
+            <button
+              type="button"
+              onClick={() => onYearFilterChange?.('ALL')}
+              className={`shrink-0 inline-flex items-center gap-1 px-2.5 h-8 rounded-xl border text-[11.5px] font-semibold transition ${
+                yearFilter === 'ALL'
+                  ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300'
+              }`}
+            >
+              <span>全部</span>
+              <span
+                className={`px-1.5 py-[1px] rounded-full tabular-nums text-[10px] font-bold ${
+                  yearFilter === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {allCount}
+              </span>
+            </button>
+            {yearBuckets.map((b) => {
+              const active = yearFilter === b.year;
+              return (
+                <button
+                  key={b.year}
+                  type="button"
+                  onClick={() => onYearFilterChange?.(b.year)}
+                  className={`shrink-0 inline-flex items-center gap-1 px-2.5 h-8 rounded-xl border text-[11.5px] font-semibold transition ${
+                    active
+                      ? 'bg-gradient-to-br from-indigo-500 to-violet-600 text-white border-transparent shadow-[0_6px_18px_-10px_rgba(99,102,241,0.7)]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300'
+                  }`}
+                >
+                  <span>{b.year}</span>
+                  <span
+                    className={`px-1.5 py-[1px] rounded-full tabular-nums text-[10px] font-bold ${
+                      active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {b.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div
         ref={listRef}
         className="max-h-[calc(100vh-320px)] overflow-y-auto px-2.5 sm:px-3 py-2.5 sm:py-3 space-y-2 sm:space-y-2.5"
@@ -670,7 +721,55 @@ export function SECFilingListPanel({
             onClick={() => {
               onSelectFiling(f.id);
               const el = document.getElementById(`sec-filing-${f.id}`);
-              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                const prev = el.getAttribute('style') ?? '';
+                try {
+                  if (typeof (window as any).__filingFlashCleanup === 'function') {
+                    (window as any).__filingFlashCleanup();
+                  }
+                } catch (_) {}
+                let round = 0;
+                let cleanup: (() => void) | null = null;
+                const timer = window.setInterval(() => {
+                  round += 1;
+                  if (round % 2 === 1) {
+                    el.setAttribute(
+                      'style',
+                      `${prev}${prev.length && !prev.endsWith(';') ? ';' : ''}outline: 2px solid rgb(99 102 241 / 0.68) !important; outline-offset: 3px !important; box-shadow: 0 18px 42px -22px rgba(99,102,241,0.55), 0 2px 0 rgba(15,23,42,0.03) !important; transition: outline 180ms ease, box-shadow 180ms ease !important;`,
+                    );
+                  } else {
+                    el.setAttribute(
+                      'style',
+                      `${prev}${prev.length && !prev.endsWith(';') ? ';' : ''}outline: 2px solid rgb(236 72 153 / 0.58) !important; outline-offset: 3px !important; box-shadow: 0 18px 42px -22px rgba(236,72,153,0.5), 0 2px 0 rgba(15,23,42,0.03) !important; transition: outline 180ms ease, box-shadow 180ms ease !important;`,
+                    );
+                  }
+                }, 260);
+                const stop = window.setTimeout(() => {
+                  window.clearInterval(timer);
+                  if (prev) el.setAttribute('style', prev);
+                  else el.removeAttribute('style');
+                  if (cleanup) cleanup = null;
+                  try {
+                    if ((window as any).__filingFlashCleanupId === stop) {
+                      delete (window as any).__filingFlashCleanup;
+                      delete (window as any).__filingFlashCleanupId;
+                    }
+                  } catch (_) {}
+                }, 1120);
+                cleanup = () => {
+                  try {
+                    window.clearInterval(timer);
+                    window.clearTimeout(stop);
+                  } catch (_) {}
+                  if (prev) el.setAttribute('style', prev);
+                  else el.removeAttribute('style');
+                };
+                try {
+                  (window as any).__filingFlashCleanup = cleanup;
+                  (window as any).__filingFlashCleanupId = stop;
+                } catch (_) {}
+              }
             }}
             isIRPRAdmin={isIRPRAdmin}
           />

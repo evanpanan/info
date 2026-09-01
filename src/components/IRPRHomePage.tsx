@@ -63,10 +63,12 @@ export default function IRPRHomePage() {
   type FilingFilterFormType = 'ALL' | '8-K' | '10-Q' | '10-K' | '424B5' | '13G' | 'FORM3' | 'FORM4' | 'CORRESP' | 'OTHER';
   type FilingFilterStatusType = 'ALL' | 'ready' | 'review_or_summarizing' | 'need_review' | 'summarizing' | 'published';
   type FilingSortType = 'latest_filed' | 'earliest_filed' | 'latest_ingested';
+  type FilingYearFilter = number | 'ALL';
   const [filingFormFilter, setFilingFormFilter] = useState<FilingFilterFormType>('ALL');
   const [filingStatusFilter, setFilingStatusFilter] = useState<FilingFilterStatusType>('ALL');
   const [filingSort, setFilingSort] = useState<FilingSortType>('latest_filed');
   const [filingSearch, setFilingSearch] = useState('');
+  const [filingYearFilter, setFilingYearFilter] = useState<FilingYearFilter>('ALL');
   const [selectedFilingId, setSelectedFilingId] = useState<string | null>(null);
   const [expandedSummaryIds, setExpandedSummaryIds] = useState<Set<string>>(new Set());
 
@@ -92,6 +94,14 @@ export default function IRPRHomePage() {
     }
     const kw = filingSearch.trim().toLowerCase();
     let arr = filings.slice();
+    if (filingYearFilter !== 'ALL')
+      arr = arr.filter((f) => {
+        try {
+          return new Date(f.filedAt).getUTCFullYear() === Number(filingYearFilter);
+        } catch (_) {
+          return false;
+        }
+      });
     if (filingFormFilter !== 'ALL') arr = arr.filter((f) => f.formType === filingFormFilter);
     if (filingStatusFilter !== 'ALL') {
       if (filingStatusFilter === 'review_or_summarizing')
@@ -133,7 +143,21 @@ export default function IRPRHomePage() {
         sumCount,
       },
     };
-  }, [filings, filingFormFilter, filingStatusFilter, filingSort, filingSearch]);
+  }, [filings, filingFormFilter, filingStatusFilter, filingSort, filingSearch, filingYearFilter]);
+
+  const filingYearBuckets = useMemo<{ year: number; count: number }[]>(() => {
+    const map = new Map<number, number>();
+    for (const f of filings) {
+      try {
+        const y = new Date(f.filedAt).getUTCFullYear();
+        if (!Number.isFinite(y)) continue;
+        map.set(y, (map.get(y) ?? 0) + 1);
+      } catch (_) {}
+    }
+    return Array.from(map.entries())
+      .map(([year, count]) => ({ year, count }))
+      .sort((a, b) => b.year - a.year);
+  }, [filings]);
 
   const selectedFiling: SECFilingSummary | null = useMemo(() => {
     const byId = selectedFilingId ? filings.find((f) => f.id === selectedFilingId) : null;
@@ -893,35 +917,35 @@ export default function IRPRHomePage() {
             />
           )}
           {tab !== 'filings' && canPublish ? (
-            <div className="col-span-12 lg:col-span-8 space-y-3">
+            <div className="col-span-12 lg:col-span-8 space-y-3 sm:space-y-4">
               <button
                 type="button"
                 onClick={() => setPublisherOpen((v) => !v)}
-                className={`w-full rounded-2xl border px-4 sm:px-5 py-4 text-left transition ${
+                className={`w-full rounded-2xl border px-3.5 sm:px-4 py-2.5 sm:py-3 text-left transition ${
                   publisherOpen
                     ? 'border-sky-200 bg-sky-50/70 shadow-sm shadow-sky-100/60'
                     : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                     <div
-                      className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                      className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center flex-shrink-0 ${
                         publisherOpen ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      <PenSquare size={18} strokeWidth={1.9} />
+                      <PenSquare size={16} strokeWidth={1.9} />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-[15px] font-semibold text-slate-900">发布动态</div>
-                      <div className="text-[12.5px] text-slate-500 mt-0.5">
+                      <div className="text-[13.5px] sm:text-[14px] font-semibold text-slate-900 leading-none">发布动态</div>
+                      <div className="text-[11.5px] sm:text-[12px] text-slate-500 mt-1 leading-snug">
                         仅少数发布者需要使用，点击后展开编辑器；浏览和互动不受影响。
                       </div>
                     </div>
                   </div>
-                  <div className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-slate-600 flex-shrink-0">
+                  <div className="inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-600 flex-shrink-0">
                     {publisherOpen ? '收起' : '展开'}
-                    {publisherOpen ? <ChevronUp size={15} strokeWidth={2} /> : <ChevronDown size={15} strokeWidth={2} />}
+                    {publisherOpen ? <ChevronUp size={14} strokeWidth={2} /> : <ChevronDown size={14} strokeWidth={2} />}
                   </div>
                 </div>
               </button>
@@ -998,6 +1022,9 @@ export default function IRPRHomePage() {
                   setSelectedFilingId(id);
                 }}
                 isIRPRAdmin={isIRPRAdmin}
+                yearFilter={filingYearFilter}
+                onYearFilterChange={(y) => setFilingYearFilter(y)}
+                yearBuckets={filingYearBuckets}
               />
             ) : (
               <>

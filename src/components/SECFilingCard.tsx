@@ -198,10 +198,7 @@ export default function SECFilingCard({
       <Wrapper
         {...wrapperProps}
         className={[
-          'w-full text-left group rounded-2xl bg-white border transition overflow-hidden px-3 sm:px-3.5 py-2.5 sm:py-3 flex items-start gap-3 hover:shadow-[0_8px_24px_-12px_rgba(15,23,42,0.18)]',
-          selected
-            ? 'border-indigo-300 ring-2 ring-indigo-100 shadow-[0_10px_32px_-16px_rgba(99,102,241,0.35)] bg-gradient-to-br from-indigo-50/70 via-white to-white'
-            : 'border-slate-200/80 hover:border-slate-300',
+          'w-full text-left group rounded-2xl bg-white border transition overflow-hidden px-3 sm:px-3.5 py-2.5 sm:py-3 flex items-start gap-3 hover:shadow-[0_8px_24px_-12px_rgba(15,23,42,0.18)] border-slate-200/80 hover:border-slate-300',
         ].join(' ')}
       >
         <div
